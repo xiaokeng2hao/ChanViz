@@ -78,7 +78,7 @@ project/
    - 使用`indicators.py`计算技术指标（MACD、布林带）
    - 使用`czsc`库进行缠论分析（识别笔、分型、中枢）
 3. **数据转换**：通过`chart_processor.py`将分析结果转换为前端可用的JSON格式
-4. **数据测试/修改**：使用`test_framework.py`和`test.py`中的自定义测试类处理数据
+4. **数据测试/修改**：使用`test_framework.py`和`test.py`中的自定义测试类处理数据(数据发送到前端之前都会经过TestFramework类，通过继承修改自定义策略，然后返回数据到前端显示)
 5. **数据展示**：前端通过`index.html`将数据可视化展示
 
 ## API接口
@@ -125,7 +125,7 @@ project/
 
 ### 扩展示例
 
-用户可以通过继承`TestFramework`类来实现数据的自定义处理：
+用户可以通过继承`TestFramework`类来实现数据的自定义处理，请参考test.py文件自定义显示数据：
 
 ```python
 # 示例：创建自定义测试类
