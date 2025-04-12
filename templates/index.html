@@ -1,0 +1,1587 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CZSC Analysis</title>
+    <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .header {
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .search-form {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .kline-info {
+            font-size: 14px;
+            color: #333;
+            display: flex;
+            gap: 20px;
+        }
+        .kline-info-item {
+            display: flex;
+            flex-direction: column;
+            min-width: 90px;
+        }
+        .kline-info-label {
+            color: #666;
+            margin-right: 5px;
+            min-width: 70px;
+            text-align: center;
+        }
+        .kline-info-value {
+            font-weight: bold;
+            min-width: 80px;
+            text-align: center;
+        }
+        .chart-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            width: 100%;
+            height: calc(100vh - 70px);
+            position: relative;
+        }
+        .global-vertical-line {
+            position: absolute;
+            width: 1px;
+            background-color: rgba(117, 134, 150, 0.9);
+            pointer-events: none;
+            z-index: 999;
+            top: 0;
+            bottom: 0;
+            display: none;
+            box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+        }
+        #kline-chart {
+            flex: 2;
+            min-height: 0;
+            position: relative;
+            height: 60%;
+            width: 100%;
+        }
+        #volume-chart {
+            flex: 1;
+            min-height: 0;
+            height: 20%;
+            width: 100%;
+        }
+        #macd-chart {
+            flex: 1;
+            min-height: 0;
+            height: 20%;
+            width: 100%;
+        }
+        .price-tooltip {
+            position: absolute;
+            display: none;
+            padding: 8px 12px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1000;
+            pointer-events: none;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            white-space: nowrap;
+            max-width: 300px;
+        }
+        .price-tooltip-section {
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            padding-bottom: 5px;
+        }
+        .price-tooltip-section:last-child {
+            margin-bottom: 0;
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+        .price-tooltip-section-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #42a5f5;
+        }
+        .price-tooltip-item {
+            margin: 3px 0;
+            white-space: nowrap;
+            display: flex;
+            justify-content: space-between;
+        }
+        .price-tooltip-item span:first-child {
+            min-width: 90px;
+            margin-right: 10px;
+        }
+        .price-tooltip-item span:last-child {
+            min-width: 60px;
+            text-align: right;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            color: #666;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 20px;
+            border-radius: 5px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2 style="margin: 0;" id="chart-title">CZSC Analysis Chart</h2>
+        <div class="search-form">
+            <input type="text" id="stock-code" placeholder="股票代码" value="{{ stock_code }}">
+            <select id="kline-type">
+                <option value="1分" {{ 'selected' if kline_type == '1分' else '' }}>1分钟</option>
+                <option value="5分" {{ 'selected' if kline_type == '5分' else '' }}>5分钟</option>
+                <option value="30分" {{ 'selected' if kline_type == '30分' else ('selected' if kline_type is not defined else '') }}>30分钟</option>
+                <option value="日" {{ 'selected' if kline_type == '日' else '' }}>日线</option>
+                <option value="周" {{ 'selected' if kline_type == '周' else '' }}>周线</option>
+            </select>
+            <input type="number" id="limit" placeholder="K线数量" value="{{ limit }}" min="100" max="5000">
+            <button type="button" id="search-btn">查询</button>
+        </div>
+        <div class="kline-info">
+            <div class="kline-info-item">
+                <span class="kline-info-label">时间</span>
+                <span class="kline-info-value" id="kline-time">-</span>
+            </div>
+            <div class="kline-info-item">
+                <span class="kline-info-label">开盘</span>
+                <span class="kline-info-value" id="kline-open">-</span>
+            </div>
+            <div class="kline-info-item">
+                <span class="kline-info-label">最高</span>
+                <span class="kline-info-value" id="kline-high">-</span>
+            </div>
+            <div class="kline-info-item">
+                <span class="kline-info-label">最低</span>
+                <span class="kline-info-value" id="kline-low">-</span>
+            </div>
+            <div class="kline-info-item">
+                <span class="kline-info-label">收盘</span>
+                <span class="kline-info-value" id="kline-close">-</span>
+            </div>
+            <div class="kline-info-item">
+                <span class="kline-info-label">成交量</span>
+                <span class="kline-info-value" id="kline-volume">-</span>
+            </div>
+            <div class="kline-info-item">
+                <span class="kline-info-label">MACD面积</span>
+                <span class="kline-info-value" id="kline-macd">-</span>
+            </div>
+        </div>
+    </div>
+    <div class="chart-container">
+        <div id="kline-chart">
+            <div id="price-tooltip" class="price-tooltip"></div>
+        </div>
+        <div id="volume-chart"></div>
+        <div id="macd-chart"></div>
+        <div id="global-vertical-line" class="global-vertical-line"></div>
+        <div id="loading" class="loading" style="display: none;">加载中...</div>
+    </div>
+
+    <script>
+        class ChartManager {
+            constructor(klineContainerId, volumeContainerId, macdContainerId) {
+                // 保存容器ID
+                this.klineContainerId = klineContainerId || 'kline-chart';
+                this.volumeContainerId = volumeContainerId || 'volume-chart';
+                this.macdContainerId = macdContainerId || 'macd-chart';
+                
+                // 获取容器元素
+                const klineContainer = document.getElementById(this.klineContainerId);
+                const volumeContainer = document.getElementById(this.volumeContainerId);
+                const macdContainer = document.getElementById(this.macdContainerId);
+                
+                // 检查主容器
+                if (!klineContainer) {
+                    console.error(`K线图容器不存在: ${this.klineContainerId}`);
+                    return; // 如果主容器不存在，不继续初始化
+                }
+                
+                try {
+                    // 创建K线图
+                    this.klineChart = LightweightCharts.createChart(klineContainer, {
+                    layout: {
+                        background: { color: '#ffffff' },
+                        textColor: '#333',
+                    },
+                    grid: {
+                        vertLines: { color: '#f0f0f0' },
+                        horzLines: { color: '#f0f0f0' },
+                    },
+                    crosshair: {
+                        mode: LightweightCharts.CrosshairMode.Normal,
+                            vertLine: {
+                                visible: false,  // 禁用内置垂直线，使用全局垂直线
+                                width: 1,
+                                color: 'rgba(117, 134, 150, 0.8)',
+                                style: 1,
+                            },
+                            horzLine: {
+                                visible: true,   // 保留水平线
+                                width: 1,
+                                color: 'rgba(117, 134, 150, 0.8)',
+                                style: 1,
+                            },
+                    },
+                    timeScale: {
+                        rightOffset: 5,
+                        barSpacing: 10,
+                        fixLeftEdge: false,       // 允许向左无限滚动
+                        lockVisibleTimeRangeOnResize: false, // 不锁定可见区域，允许自由缩放
+                        rightBarStaysOnScroll: false, // 允许向右滚动
+                        borderVisible: true,
+                        borderColor: '#dcdee0',
+                        visible: true,
+                        timeVisible: true,
+                        secondsVisible: false,
+                    },
+                });
+                
+                    // 添加K线系列
+                this.candlestickSeries = this.klineChart.addCandlestickSeries({
+                    upColor: '#26a69a',
+                    downColor: '#ef5350',
+                    borderVisible: false,
+                    wickUpColor: '#26a69a',
+                    wickDownColor: '#ef5350',
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                    });
+                    
+                    // 添加布林带系列
+                    this.bollingerUpperSeries = this.klineChart.addLineSeries({
+                        color: 'rgba(76, 175, 80, 0.5)',
+                        lineWidth: 1,
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false
+                    });
+                    
+                    this.bollingerMiddleSeries = this.klineChart.addLineSeries({
+                        color: 'rgba(76, 175, 80, 0.7)',
+                        lineWidth: 1,
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false
+                    });
+                    
+                    this.bollingerLowerSeries = this.klineChart.addLineSeries({
+                        color: 'rgba(76, 175, 80, 0.5)',
+                        lineWidth: 1,
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false
+                    });
+                    
+                    // 添加笔系列 - 使用分型标记
+                    this.fxSeries = this.klineChart.addLineSeries({
+                        color: '#888888',
+                        lineWidth: 1,
+                        lineStyle: 1, // 虚线
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false
+                    });
+                    
+                    // 添加笔系列 - 连接线
+                    this.biSeries = this.klineChart.addLineSeries({
+                        color: '#2196f3',
+                    lineWidth: 2,
+                        lastValueVisible: false, 
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false
+                    });
+                    
+                    // 中枢系列存储
+                    this.centralZoneMarkers = [];
+                    // 存储当前绘制的中枢数据，用于tooltip
+                    this.zsCurrent = [];
+                    
+                    // 存储各种数据系列
+                    this.volumeSeries = null;
+                    this.macdSeries = null;
+                    this.macdSignalSeries = null;
+                    this.macdHistogramSeries = null;
+                    this.strokesSeries = null;
+                    
+                    // 全局变量
+                    this.chartData = null;
+                    
+                    // 存储图表标记
+                    this.markers = [];
+                    
+                } catch (error) {
+                    console.error('创建K线图时出错:', error);
+                    this.klineChart = null;
+                    this.candlestickSeries = null;
+                }
+            }
+
+            initialize() {
+                // 先检查并获取所有需要的容器
+                const klineContainer = document.getElementById(this.klineContainerId);
+                const volumeContainer = document.getElementById(this.volumeContainerId);
+                const macdContainer = document.getElementById(this.macdContainerId);
+                
+                // 检查关键容器
+                if (!klineContainer) {
+                    console.error(`K线图容器不存在: ${this.klineContainerId}`);
+                    return; // 如果K线图容器不存在，中止初始化
+                }
+                
+                // 初始化各个图表 - 只在容器存在时创建
+                if (volumeContainer) {
+                    this._createVolumeChart();
+                } else {
+                    console.error(`成交量图容器不存在: ${this.volumeContainerId}`);
+                }
+                
+                if (macdContainer) {
+                    this._createMACDChart();
+                } else {
+                    console.error(`MACD图容器不存在: ${this.macdContainerId}`);
+                }
+                
+                // 设置图表间时间轴同步 - 只同步存在的图表
+                this._setupTimeScaleSync();
+                
+                // 设置全局垂直线
+                this._setupGlobalVerticalLine();
+                
+                // 设置价格工具提示
+                this._setupPriceTooltip();
+                
+                // 设置一个默认提示，告知用户移动鼠标查看MACD面积
+                const macdInfoElement = document.getElementById('kline-macd');
+                if (macdInfoElement) {
+                    macdInfoElement.textContent = '移动鼠标查看';
+                    macdInfoElement.style = 'color: #777; font-style: italic;';
+                }
+            }
+            
+            _createVolumeChart() {
+                const container = document.getElementById(this.volumeContainerId);
+                if (!container) {
+                    console.error(`成交量图容器不存在: ${this.volumeContainerId}`);
+                    return;
+                }
+                
+                try {
+                this.volumeChart = LightweightCharts.createChart(container, {
+                    layout: {
+                        background: { color: '#ffffff' },
+                        textColor: '#333',
+                    },
+                    grid: {
+                        vertLines: { color: '#f0f0f0' },
+                        horzLines: { color: '#f0f0f0' },
+                    },
+                    rightPriceScale: {
+                        borderColor: '#dfdfdf',
+                    },
+                    timeScale: {
+                        borderColor: '#dfdfdf',
+                        visible: false,
+                    },
+                    crosshair: {
+                        mode: LightweightCharts.CrosshairMode.Normal,
+                        vertLine: {
+                                visible: false,  // 禁用内置垂直线，使用全局垂直线
+                                width: 1,
+                                color: 'rgba(117, 134, 150, 0.8)',
+                                style: 1,
+                            },
+                            horzLine: {
+                                visible: true,   // 保留水平线
+                                width: 1,
+                                color: 'rgba(117, 134, 150, 0.8)',
+                                style: 1,
+                        },
+                    },
+                });
+                
+                // 添加成交量数据系列
+                this.volumeSeries = this.volumeChart.addHistogramSeries({
+                    color: '#26a69a',
+                    priceFormat: {
+                        type: 'volume',
+                    },
+                    priceScaleId: '',
+                });
+
+                } catch (error) {
+                    console.error('创建成交量图表时出错:', error);
+                    this.volumeChart = null;
+                    this.volumeSeries = null;
+                }
+            }
+            
+            _createMACDChart() {
+                const container = document.getElementById(this.macdContainerId);
+                if (!container) {
+                    console.error(`MACD图容器不存在: ${this.macdContainerId}`);
+                    return;
+                }
+                
+                try {
+                    // 清除现有实例，避免重复创建
+                    if (this.macdChart) {
+                        try {
+                            // 先尝试移除所有系列
+                            if (this.macdSeries) this.macdChart.removeSeries(this.macdSeries);
+                            if (this.macdSignalSeries) this.macdChart.removeSeries(this.macdSignalSeries);
+                            if (this.macdHistogramSeries) this.macdChart.removeSeries(this.macdHistogramSeries);
+                        } catch(e) {
+                            console.warn('清除现有MACD系列时出错:', e);
+                        }
+                    }
+
+                    // 创建新的MACD图表
+                this.macdChart = LightweightCharts.createChart(container, {
+                    layout: {
+                        background: { color: '#ffffff' },
+                        textColor: '#333',
+                    },
+                    grid: {
+                        vertLines: { color: '#f0f0f0' },
+                        horzLines: { color: '#f0f0f0' },
+                    },
+                    rightPriceScale: {
+                        borderColor: '#dfdfdf',
+                            scaleMargins: {
+                                top: 0.1,
+                                bottom: 0.1,
+                            },
+                    },
+                    timeScale: {
+                        borderColor: '#dfdfdf',
+                        visible: false,
+                    },
+                    crosshair: {
+                        mode: LightweightCharts.CrosshairMode.Normal,
+                        vertLine: {
+                                visible: false,  // 禁用内置垂直线，使用全局垂直线
+                                width: 1,
+                                color: 'rgba(117, 134, 150, 0.8)',
+                                style: 1,
+                            },
+                            horzLine: {
+                                visible: true,   // 保留水平线
+                                width: 1,
+                                color: 'rgba(117, 134, 150, 0.8)',
+                                style: 1,
+                        },
+                    },
+                });
+                    
+                    // 首先添加柱状图，确保它在底层
+                    this.macdHistogramSeries = this.macdChart.addHistogramSeries({
+                        priceFormat: {
+                            type: 'price',
+                            precision: 6,
+                        },
+                        priceScaleId: 'macd', // 使用同一个价格轴
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                        color: '#26a69a',   // 默认颜色，将在setData时被覆盖
+                        base: 0,           // 确保从0开始绘制
+                });
+                
+                // 添加MACD线系列
+                this.macdSeries = this.macdChart.addLineSeries({
+                    color: '#2196F3',
+                        lineWidth: 1.5,
+                        priceScaleId: 'macd',
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false
+                });
+                
+                // 添加Signal线系列
+                this.macdSignalSeries = this.macdChart.addLineSeries({
+                    color: '#FF9800',
+                        lineWidth: 1.5,
+                        priceScaleId: 'macd',
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false
+                    });
+                    
+                    // 确保所有系列使用同一个价格轴
+                    this.macdChart.priceScale('macd').applyOptions({
+                        autoScale: true,
+                        scaleMargins: {
+                            top: 0.1,
+                            bottom: 0.1,
+                    },
+                });
+                    
+                } catch (error) {
+                    console.error('创建MACD图表时出错:', error);
+                    this.macdChart = null;
+                    this.macdSeries = null;
+                    this.macdSignalSeries = null;
+                    this.macdHistogramSeries = null;
+                }
+            }
+            
+            _setupTimeScaleSync() {
+                // 同步时间轴
+                const syncCharts = () => {
+                    if (!this.klineChart) {
+                        console.error('K线图不存在，无法进行时间轴同步');
+                        return;
+                    }
+                    
+                    const mainTimeScale = this.klineChart.timeScale();
+                    
+                    // 只有在volume chart存在时才进行同步
+                    if (this.volumeChart) {
+                        try {
+                            // 确保每次主图表时间范围变化时，成交量图也跟着变化
+                            mainTimeScale.subscribeVisibleLogicalRangeChange((range) => {
+                                if (this.volumeChart && range) {
+                                    this.volumeChart.timeScale().setVisibleLogicalRange(range);
+                                }
+                            });
+                            
+                            // 同样，当成交量图变化时，主图表也跟着变化
+                            this.volumeChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+                                if (this.klineChart && range) {
+                                    mainTimeScale.setVisibleLogicalRange(range);
+                                }
+                            });
+                        } catch (error) {
+                            console.error('同步成交量图时间轴时出错:', error);
+                        }
+                    }
+                    
+                    // 只有在macd chart存在时才进行同步
+                    if (this.macdChart) {
+                        try {
+                            // 确保每次主图表时间范围变化时，MACD图也跟着变化
+                            mainTimeScale.subscribeVisibleLogicalRangeChange((range) => {
+                                if (this.macdChart && range) {
+                                    this.macdChart.timeScale().setVisibleLogicalRange(range);
+                                }
+                            });
+                            
+                            // 同样，当MACD图变化时，主图表也跟着变化
+                            this.macdChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+                                if (this.klineChart && range) {
+                                    mainTimeScale.setVisibleLogicalRange(range);
+                                }
+                            });
+                        } catch (error) {
+                            console.error('同步MACD图时间轴时出错:', error);
+                        }
+                    }
+                };
+                
+                // 在下一个事件循环中执行同步
+                setTimeout(syncCharts, 100);
+                
+                // 添加鼠标滚轮事件，确保跨图表缩放正常工作
+                const handleMouseWheel = (e) => {
+                    // 阻止默认行为
+                    e.preventDefault();
+                    
+                    // 确保K线图存在
+                    if (!this.klineChart) return;
+                    
+                    try {
+                        // 获取当前的逻辑坐标范围
+                        const logicalRange = this.klineChart.timeScale().getVisibleLogicalRange();
+                        if (!logicalRange) return;
+                        
+                        // 计算新的缩放范围
+                        const delta = e.deltaY * 0.001; // 调整灵敏度，正值是放大，负值是缩小
+                        
+                        // 获取鼠标相对于图表的位置，用于计算缩放中心
+                        const chartElement = document.getElementById(this.klineContainerId);
+                        if (!chartElement) return;
+                        
+                        const chartRect = chartElement.getBoundingClientRect();
+                        const mouseX = e.clientX - chartRect.left;
+                        
+                        // 图表总宽度
+                        const totalWidth = chartRect.width;
+                        
+                        // 计算鼠标在逻辑范围中的相对位置 (0-1)
+                        const mouseRatio = mouseX / totalWidth;
+                        
+                        // 获取当前可见范围的宽度
+                        const rangeWidth = logicalRange.to - logicalRange.from;
+                        
+                        // 计算缩放后的新范围宽度 (delta为正值时缩小，负值时放大)
+                        const newRangeWidth = rangeWidth * (1 + delta);
+                        
+                        // 确保范围有效 (至少显示5个单位)
+                        if (newRangeWidth < 5) return;
+                        
+                        // 计算新的from和to值，保持鼠标位置不变
+                        const newFrom = logicalRange.from - (newRangeWidth - rangeWidth) * mouseRatio;
+                        const newTo = logicalRange.to + (newRangeWidth - rangeWidth) * (1 - mouseRatio);
+                        
+                        // 应用新范围
+                        const newRange = {
+                            from: newFrom,
+                            to: newTo
+                        };
+                        
+                        // 应用到K线图
+                        this.klineChart.timeScale().setVisibleLogicalRange(newRange);
+                        
+                        // 同步到其他图表
+                        if (this.volumeChart) {
+                            this.volumeChart.timeScale().setVisibleLogicalRange(newRange);
+                        }
+                        if (this.macdChart) {
+                            this.macdChart.timeScale().setVisibleLogicalRange(newRange);
+                        }
+                    } catch (error) {
+                        console.error('鼠标滚轮缩放出错:', error);
+                    }
+                };
+                
+                // 添加鼠标滚轮事件
+                const chartContainer = document.querySelector('.chart-container');
+                if (chartContainer) {
+                    chartContainer.addEventListener('wheel', handleMouseWheel, { passive: false });
+                }
+            }
+            
+            _setupGlobalVerticalLine() {
+                const verticalLine = document.getElementById('global-vertical-line');
+                
+                // 确保垂直线元素存在
+                if (!verticalLine) {
+                    console.error('Global vertical line element not found');
+                    return;
+                }
+                
+                // 处理鼠标移动，显示垂直线
+                const handleMouseMove = (e) => {
+                    if (!this.klineChart) {
+                        return; // 如果K线图不存在，直接返回
+                    }
+                    
+                    const chartContainer = document.querySelector('.chart-container');
+                    if (!chartContainer) {
+                        console.error('Chart container not found');
+                        return;
+                    }
+                    
+                    try {
+                        const chartRect = chartContainer.getBoundingClientRect();
+                        const mouseX = e.clientX - chartRect.left;
+                        
+                        // 计算时间轴上的位置
+                        if (mouseX >= 0 && mouseX <= chartRect.width) {
+                            verticalLine.style.display = 'block';
+                            verticalLine.style.left = `${mouseX}px`;
+                        } else {
+                            verticalLine.style.display = 'none';
+                        }
+                    } catch (error) {
+                        console.error('Error getting chart container bounds:', error);
+                        verticalLine.style.display = 'none';
+                    }
+                };
+                
+                // 处理鼠标离开，隐藏垂直线
+                const handleMouseLeave = () => {
+                    verticalLine.style.display = 'none';
+                };
+                
+                // 确保容器存在后再添加事件监听器
+                const chartContainer = document.querySelector('.chart-container');
+                if (chartContainer) {
+                    chartContainer.addEventListener('mousemove', handleMouseMove);
+                    chartContainer.addEventListener('mouseleave', handleMouseLeave);
+                } else {
+                    console.error('Chart container not found, cannot add event listeners');
+                }
+            }
+            
+            _setupPriceTooltip() {
+                const tooltip = document.getElementById('price-tooltip');
+                
+                const updateTooltipContent = (param) => {
+                    if (param && param.time && param.point) {
+                        const data = param.seriesData.get(this.candlestickSeries);
+                        if (data && this.chartData) {
+                            // 安全检查：确保chartData和必要的数据结构存在
+                            if (!this.chartData.rawData) {
+                                // 如果rawData不存在，我们可以使用原始的bars数据
+                                // 转换为所需的格式
+                                this.chartData.rawData = this.chartData.bars ? 
+                                    this.chartData.bars.map(bar => {
+                                        return {
+                                            time: bar.time || (new Date(bar.dt).getTime() / 1000),
+                                            dt: bar.dt,
+                                            open: bar.open,
+                                            high: bar.high,
+                                            low: bar.low,
+                                            close: bar.close,
+                                            vol: bar.vol || 0,
+                                            indicators: bar.indicators || {}
+                                        };
+                                    }) : [];
+                            }
+                            
+                            // 获取当前时间戳对应的原始数据
+                            let rawBar = null;
+                            try {
+                                rawBar = this.chartData.rawData.find(bar => bar.time === param.time);
+                            } catch (e) {
+                                console.warn('在查找K线数据时出错:', e);
+                            }
+                            
+                            if (!rawBar) {
+                                console.warn('找不到对应时间的K线数据:', param.time);
+                                return;
+                            }
+                            
+                            // 使用自定义格式化函数，将时间戳格式化为年月日时分
+                            const formatDateTime = (timestamp) => {
+                                const date = new Date(timestamp * 1000);
+                                const year = date.getFullYear();
+                                const month = String(date.getMonth() + 1).padStart(2, '0');
+                                const day = String(date.getDate()).padStart(2, '0');
+                                const hours = String(date.getHours()).padStart(2, '0');
+                                const minutes = String(date.getMinutes()).padStart(2, '0');
+                                return `${year}-${month}-${day} ${hours}:${minutes}`;
+                            };
+                            
+                            const timeStr = formatDateTime(param.time);
+                            
+                            // 获取K线数据
+                            const open = data.open.toFixed(2);
+                            const high = data.high.toFixed(2);
+                            const low = data.low.toFixed(2);
+                            const close = data.close.toFixed(2);
+                            const change = (((close - open) / open) * 100).toFixed(2);
+                            const klineColor = close >= open ? 'color: #26a69a;' : 'color: #ef5350;';
+                            
+                            // 获取成交量数据
+                            const vol = rawBar.vol.toLocaleString();
+                            
+                            // 获取MACD面积数据和笔信息
+                            let biInfo = '';
+                            let macdAreaText = '-';
+                            let macdAreaColor = 'color: #333;';
+                            
+                            if (rawBar.bi) {
+                                const bi = rawBar.bi;
+                                const biColor = bi.direction === 'up' ? 'color: #2196f3;' : 'color: #ef5350;';
+                                const biDirection = bi.direction === 'up' ? '向上' : '向下';
+                                
+                                // 使用后端计算的MACD面积，直接显示整数
+                                macdAreaText = String(bi.macd_area.total);
+                                macdAreaColor = biColor;
+                                
+                                biInfo = `
+                                <div class="price-tooltip-section">
+                                    <div class="price-tooltip-section-title">笔信息</div>
+                                    <div class="price-tooltip-item"><span>序号:</span> <span style="${biColor}">#${bi.index + 1}</span></div>
+                                    <div class="price-tooltip-item"><span>方向:</span> <span style="${biColor}">${biDirection}</span></div>
+                                    <div class="price-tooltip-item"><span>起点:</span> <span>${bi.start_val.toFixed(2)}</span></div>
+                                    <div class="price-tooltip-item"><span>终点:</span> <span>${bi.end_val.toFixed(2)}</span></div>
+                                    <div class="price-tooltip-item"><span>变化幅度:</span> <span style="${biColor}">${bi.direction === 'up' ? 
+                                        ((bi.end_val - bi.start_val) / bi.start_val * 100).toFixed(2) :
+                                        ((bi.start_val - bi.end_val) / bi.start_val * 100).toFixed(2)}%</span></div>
+                                    <div class="price-tooltip-item"><span>MACD面积:</span> <span style="${biColor}">${macdAreaText}</span></div>
+                                </div>`;
+                            }
+                            
+                            // 获取分型信息
+                            let fxInfo = '';
+                            if (rawBar.fx) {
+                                const fx = rawBar.fx;
+                                const fxType = fx.type === 'top' ? '顶分型' : '底分型';
+                                const fxColor = fx.type === 'top' ? 'color: #ef5350;' : 'color: #26a69a;';
+                                
+                                fxInfo = `
+                                <div class="price-tooltip-section">
+                                    <div class="price-tooltip-section-title">分型信息</div>
+                                    <div class="price-tooltip-item"><span>类型:</span> <span style="${fxColor}">${fxType}</span></div>
+                                    <div class="price-tooltip-item"><span>价格:</span> <span>${fx.value.toFixed(2)}</span></div>
+                                </div>`;
+                            }
+                            
+                            // 获取中枢信息
+                            let centralZoneInfo = '';
+                            if (rawBar.zs) {
+                                const zs = rawBar.zs;
+                                const range = ((zs.zg - zs.zd) / zs.zd * 100).toFixed(2);
+                                
+                                centralZoneInfo = `
+                                <div class="price-tooltip-section">
+                                    <div class="price-tooltip-section-title">中枢信息</div>
+                                    <div class="price-tooltip-item"><span>上沿:</span> <span style="color: #ff9800;">${zs.zg.toFixed(2)}</span></div>
+                                    <div class="price-tooltip-item"><span>中轴:</span> <span style="color: #ff9800;">${zs.zz.toFixed(2)}</span></div>
+                                    <div class="price-tooltip-item"><span>下沿:</span> <span style="color: #ff9800;">${zs.zd.toFixed(2)}</span></div>
+                                    <div class="price-tooltip-item"><span>区间幅度:</span> <span style="color: #ff9800;">${range}%</span></div>
+                                </div>`;
+                            }
+                            
+                            // 构建tooltip内容
+                            tooltip.innerHTML = `
+                                <div class="price-tooltip-section">
+                                    <div class="price-tooltip-section-title">K线数据</div>
+                                    <div class="price-tooltip-item"><span>时间:</span> <span>${timeStr}</span></div>
+                                    <div class="price-tooltip-item"><span>开盘:</span> <span>${open}</span></div>
+                                    <div class="price-tooltip-item"><span>最高:</span> <span>${high}</span></div>
+                                    <div class="price-tooltip-item"><span>最低:</span> <span>${low}</span></div>
+                                    <div class="price-tooltip-item"><span>收盘:</span> <span>${close}</span></div>
+                                    <div class="price-tooltip-item"><span>涨跌:</span> <span style="${klineColor}">${change}%</span></div>
+                                    <div class="price-tooltip-item"><span>成交量:</span> <span>${vol}</span></div>
+                                </div>
+                                ${biInfo}
+                                ${fxInfo}
+                                ${centralZoneInfo}
+                            `;
+                            
+                            // 设置tooltip位置和显示
+                            tooltip.style.display = 'block';
+                            tooltip.style.left = `${param.point.x + 15}px`;
+                            tooltip.style.top = `${param.point.y + 15}px`;
+                            
+                            // 更新信息栏 (Top panel)
+                            document.getElementById('kline-time').textContent = timeStr;
+                            document.getElementById('kline-open').textContent = open;
+                            document.getElementById('kline-high').textContent = high;
+                            document.getElementById('kline-low').textContent = low;
+                            document.getElementById('kline-close').textContent = close;
+                            document.getElementById('kline-volume').textContent = vol;
+                            // 更新顶部信息栏的MACD面积显示
+                            const macdInfoElement = document.getElementById('kline-macd');
+                            macdInfoElement.textContent = macdAreaText;
+                            macdInfoElement.style = macdAreaColor;
+                        } else {
+                            // Handle cases where basic K-line data or chartData isn't available for the point 
+                            tooltip.style.display = 'none';
+                        }
+                    }
+                };
+                
+                // 订阅十字光标移动事件
+                this.klineChart.subscribeCrosshairMove((param) => {
+                    if (!param || !param.point) {
+                        tooltip.style.display = 'none';
+                        // Clear the top info panel when cursor leaves chart
+                        const macdInfoElement = document.getElementById('kline-macd');
+                        if (macdInfoElement) { // Check if element exists
+                           macdInfoElement.textContent = '-'; 
+                           macdInfoElement.style = ''; 
+                        }
+                        return;
+                    }
+                    updateTooltipContent(param);
+                });
+            }
+            
+            // 使用czsc库的中枢数据绘制中枢
+            drawCzscZones(zsList) {
+                if (!zsList || zsList.length === 0) {
+                    this.zsCurrent = []; // 清空中枢数据
+                    return;
+                }
+                
+                // 清空当前中枢数据
+                this.zsCurrent = [];
+                
+                try {
+                    for (let i = 0; i < zsList.length; i++) {
+                        const zs = zsList[i];
+                        
+                        // 确保日期格式正确
+                        let startTime, endTime;
+                        
+                        try {
+                            // 尝试将日期字符串转换为时间戳
+                            startTime = Math.floor(new Date(zs.start_dt).getTime() / 1000);
+                            endTime = Math.floor(new Date(zs.end_dt).getTime() / 1000);
+                            
+                            // 检查时间戳是否有效
+                            if (isNaN(startTime) || isNaN(endTime)) {
+                                console.error(`中枢 #${i+1} 的时间戳无效: start=${zs.start_dt}, end=${zs.end_dt}`);
+                                continue;
+                            }
+                            
+                            // 确保价格数据是数字
+                            const zg = parseFloat(zs.zg); // 中枢上沿
+                            const zd = parseFloat(zs.zd); // 中枢下沿
+                            const zz = parseFloat(zs.zz); // 中枢中轴
+                            
+                            if (isNaN(zg) || isNaN(zd) || isNaN(zz)) {
+                                console.error(`中枢 #${i+1} 的价格数据无效: zg=${zs.zg}, zd=${zs.zd}, zz=${zs.zz}`);
+                                continue;
+                            }
+                            
+                            // 计算中枢价格区间的百分比范围
+                            const range = ((zg - zd) / zd) * 100;
+                            
+                            // 保存中枢数据供tooltip使用
+                            this.zsCurrent.push({
+                                startTime,
+                                endTime,
+                                zg,
+                                zd,
+                                zz,
+                                range
+                            });
+                            
+                            // 使用与悬浮窗相同的格式化函数
+                            const formatDateTime = (timestamp) => {
+                                const date = new Date(timestamp * 1000);
+                                const year = date.getFullYear();
+                                const month = String(date.getMonth() + 1).padStart(2, '0');
+                                const day = String(date.getDate()).padStart(2, '0');
+                                const hours = String(date.getHours()).padStart(2, '0');
+                                const minutes = String(date.getMinutes()).padStart(2, '0');
+                                return `${year}-${month}-${day} ${hours}:${minutes}`;
+                            };
+                            
+                            // 调用绘制方法
+                            this.drawCentralZone(startTime, endTime, zg, zd, zz);
+                        } catch (dateError) {
+                            console.error(`处理中枢 #${i+1} 日期数据失败:`, dateError);
+                            console.log('原始数据:', JSON.stringify(zs));
+                            continue;
+                        }
+                    }
+                } catch (e) {
+                    console.error('绘制中枢过程中发生错误:', e);
+                }
+            }
+            
+            // 清除所有中枢标记
+            clearCentralZoneMarkers() {
+                // 检查K线图是否存在
+                if (!this.klineChart) {
+                    console.error('K线图不存在，无法清除中枢标记');
+                    this.centralZoneMarkers = [];
+                    return;
+                }
+                
+                if (this.centralZoneMarkers && this.centralZoneMarkers.length > 0) {
+                    try {
+                        this.centralZoneMarkers.forEach(marker => {
+                            // 确保marker存在并且有效
+                            if (marker) {
+                                try {
+                                    this.klineChart.removeSeries(marker);
+                                } catch (error) {
+                                    console.warn('移除图表系列时出错:', error);
+                                }
+                            }
+                        });
+                    } catch (error) {
+                        console.error('清除中枢标记时出错:', error);
+                    } finally {
+                        // 无论如何都清空标记数组
+                        this.centralZoneMarkers = [];
+                    }
+                }
+            }
+            
+            // 加载数据方法
+            loadData(stockCode, klineType, limit) {
+                // 显示加载中提示
+                document.getElementById('loading').style.display = 'block';
+                
+                // 构建API URL
+                const apiUrl = `/api/kline?code=${stockCode}&freq=${klineType}&limit=${limit}`;
+                
+                // 发起AJAX请求
+                fetch(apiUrl)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // 更新图表标题
+                            document.getElementById('chart-title').innerText = `${stockCode} (${klineType})`;
+                            
+                            // 清理现有中枢标记
+                            this.clearCentralZoneMarkers();
+                            
+                            // 处理图表数据
+                            this.processChartData(data.data);
+                            
+                            // 处理标记数据
+                            if (data.data.bar_markers && data.data.bar_markers.length > 0) {
+                                this.addMarkers(data.data.bar_markers);
+                            }
+                        } else {
+                            alert('获取数据失败: ' + data.error);
+                        }
+                        
+                        // 隐藏加载中提示
+                        document.getElementById('loading').style.display = 'none';
+                    })
+                    .catch(error => {
+                        console.error('请求失败: ', error);
+                        alert('网络请求失败，请检查网络连接');
+                        
+                        // 隐藏加载中提示
+                        document.getElementById('loading').style.display = 'none';
+                    });
+            }
+            
+            // 绘制中枢
+            drawCentralZone(startTime, endTime, zg, zd, zz) {
+                try {
+                    console.log(`绘制中枢: 开始=${startTime}, 结束=${endTime}, 上沿=${zg}, 下沿=${zd}`);
+                    
+                    // 边框颜色：橙色
+                    const borderColor = 'rgba(255, 165, 0, 0.8)';
+                    
+                    // 创建上边框
+                    const upperBorder = this.klineChart.addLineSeries({
+                        color: borderColor,
+                        lineWidth: 1,
+                        lineStyle: 0, // 实线
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false
+                    });
+                    
+                    // 创建下边框
+                    const lowerBorder = this.klineChart.addLineSeries({
+                        color: borderColor,
+                        lineWidth: 1,
+                        lineStyle: 0, // 实线
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false
+                    });
+                    
+                    // 设置上下边框数据
+                    upperBorder.setData([
+                        { time: startTime, value: zg },
+                        { time: endTime, value: zg }
+                    ]);
+                    
+                    lowerBorder.setData([
+                        { time: startTime, value: zd },
+                        { time: endTime, value: zd }
+                    ]);
+                    
+                    // 创建左边界
+                    const leftBorder = this.klineChart.addLineSeries({
+                        color: borderColor,
+                        lineWidth: 1,
+                        lineStyle: 0, // 实线
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false
+                    });
+                    
+                    // 设置左边界数据（垂直线）
+                    leftBorder.setData([
+                        { time: startTime, value: zd },
+                        { time: startTime, value: zg }
+                    ]);
+                    
+                    // 绘制中枢右边界
+                    const rightBorder = this.drawCentralZoneRightBorder(endTime, zd, zg);
+                    
+                    // 存储中枢标记以便后续清理
+                    this.centralZoneMarkers.push(upperBorder);
+                    this.centralZoneMarkers.push(lowerBorder);
+                    this.centralZoneMarkers.push(leftBorder);
+                    this.centralZoneMarkers.push(rightBorder);
+                } catch (error) {
+                    console.error('绘制中枢区域时出错:', error);
+                }
+            }
+            
+            // 专门绘制中枢右边界
+            drawCentralZoneRightBorder(endTime, zd, zg) {
+                // 创建一个新的线系列专门用于右边界
+                const rightBorder = this.klineChart.addLineSeries({
+                    color: 'rgba(255, 165, 0, 0.8)',  // 橙色
+                    lineWidth: 1,
+                    lineStyle: 0, // 实线
+                    lastValueVisible: false,
+                    priceLineVisible: false,
+                    crosshairMarkerVisible: false
+                });
+                
+                // 设置右边界数据（垂直线）
+                rightBorder.setData([
+                    { time: endTime, value: zd },
+                    { time: endTime, value: zg }
+                ]);
+                
+                // 将边界添加到标记列表以便后续清理
+                this.centralZoneMarkers.push(rightBorder);
+                
+                return rightBorder;
+            }
+            
+            // 处理并展示图表数据
+            processChartData(data) {
+                // 检查主图表是否存在
+                if (!this.klineChart || !this.candlestickSeries) {
+                    console.error('K线图或K线数据系列不存在，无法处理数据');
+                    return;
+                }
+                
+                // 清理现有中枢标记
+                this.clearCentralZoneMarkers();
+                
+                try {
+                    // 数据预处理（将字符串时间转换为时间戳）
+                    const processedData = data.bars.map((bar, index, allBars) => {
+                        // 确保每个bar对象都有indicators和必要的指标属性
+                        const processedBar = {
+                            ...bar,
+                    time: Math.floor(new Date(bar.dt).getTime() / 1000),
+                            // 确保indicators对象存在
+                            indicators: bar.indicators || {}
+                        };
+                        
+                        // 确保MACD指标对象存在，但不生成模拟数据
+                        // MACD数据应该从后端提供
+                        if (!processedBar.indicators.macd) {
+                            processedBar.indicators.macd = {
+                                dif: 0,
+                                dea: 0,
+                                histogram: 0
+                            };
+                        }
+                        
+                        // 确保布林带指标存在
+                        processedBar.indicators.boll = processedBar.indicators.boll || {
+                            upper: bar.close * 1.05,
+                            middle: bar.close,
+                            lower: bar.close * 0.95
+                        };
+                        
+                        return processedBar;
+                    });
+                    
+                    // 提取各种图表数据
+                    // 1. K线数据
+                    const candlestickData = processedData.map(bar => ({
+                        time: bar.time,
+                    open: bar.open,
+                    high: bar.high,
+                    low: bar.low,
+                        close: bar.close
+                    }));
+                    
+                    // 2. 成交量数据
+                    const volumeData = processedData.map(bar => ({
+                        time: bar.time,
+                    value: bar.vol,
+                    color: bar.close >= bar.open ? '#26a69a' : '#ef5350'
+                }));
+                    
+                    // 3. MACD数据
+                    let hasMACDData = false;
+                    let macdData = {
+                        macd: [],
+                        signal: [],
+                        histogram: []
+                    };
+
+                    // 检查第一个K线是否包含有效的MACD数据
+                    if (processedData.length > 0 && 
+                        processedData[0].indicators && 
+                        processedData[0].indicators.macd) {
+                        
+                        // 简单检查数据是否都是0（可能是我们上面设置的默认值）
+                        const firstBar = processedData[0];
+                        const lastBar = processedData[processedData.length - 1];
+                        
+                        if ((firstBar.indicators.macd.dif !== 0 || lastBar.indicators.macd.dif !== 0) ||
+                            (firstBar.indicators.macd.dea !== 0 || lastBar.indicators.macd.dea !== 0) ||
+                            (firstBar.indicators.macd.histogram !== 0 || lastBar.indicators.macd.histogram !== 0)) {
+                            
+                            hasMACDData = true;
+                            
+                            try {
+                                macdData = {
+                                    macd: processedData.map(bar => ({
+                                        time: bar.time,
+                                        value: bar.indicators.macd.dif || 0
+                                    })),
+                                    signal: processedData.map(bar => ({
+                                        time: bar.time,
+                                        value: bar.indicators.macd.dea || 0
+                                    })),
+                                    histogram: processedData.map(bar => ({
+                                        time: bar.time,
+                                        value: bar.indicators.macd.histogram || 0,
+                                        color: (bar.indicators.macd.histogram || 0) >= 0 ? '#26a69a' : '#ef5350'
+                                    }))
+                                };
+                            } catch (err) {
+                                console.error('处理MACD数据时出错:', err);
+                                hasMACDData = false;
+                            }
+                        } else {
+                            console.warn('MACD数据全为0，可能是默认值，不显示MACD图表');
+                        }
+                    } else {
+                        console.warn('没有检测到MACD数据');
+                    }
+                    
+                    // 4. 布林带数据
+                    const bollingerData = {
+                        upper: processedData.map(bar => ({
+                            time: bar.time,
+                            value: bar.indicators.boll.upper
+                        })),
+                        middle: processedData.map(bar => ({
+                            time: bar.time,
+                            value: bar.indicators.boll.middle
+                        })),
+                        lower: processedData.map(bar => ({
+                            time: bar.time,
+                            value: bar.indicators.boll.lower
+                        }))
+                    };
+                    
+                    // 5. 处理分型数据
+                    const fxData = [];
+                    if (data.fx_list && data.fx_list.length > 0) {
+                        data.fx_list.forEach(fx => {
+                            const fxTime = Math.floor(new Date(fx.dt).getTime() / 1000);
+                            const processedFx = processedData.find(bar => bar.time === fxTime);
+                            if (processedFx) {
+                                processedFx.fx = {
+                                    type: fx.mark === 'g' ? 'top' : 'bottom',
+                                    value: fx.fx
+                                };
+                                
+                                // 添加分型标记
+                                fxData.push({
+                                    time: fxTime,
+                                    value: fx.fx
+                                });
+                            }
+                        });
+                    }
+                    
+                    // 6. 处理笔数据，并计算每笔的macd面积
+                    const biWithMACDArea = [];
+                    const uniqueBiList = [];
+                    
+                    if (data.bi_list && data.bi_list.length > 0) {
+                        // 处理笔数据
+                        data.bi_list.forEach((bi, index) => {
+                            try {
+                                const startTime = Math.floor(new Date(bi.fx_a.dt).getTime() / 1000);
+                                const endTime = Math.floor(new Date(bi.fx_b.dt).getTime() / 1000);
+                                const startValue = bi.fx_a.fx;
+                                const endValue = bi.fx_b.fx;
+                                const direction = bi.direction === 'Up' ? 'up' : 'down';
+                                
+                                // 创建笔连接线
+                                const biLineSeries = this.klineChart.addLineSeries({
+                                    color: direction === 'up' ? '#2196f3' : '#ef5350',
+                                    lineWidth: 2,
+                                    lastValueVisible: false,
+                                    priceLineVisible: false,
+                                    crosshairMarkerVisible: false
+                                });
+                                
+                                biLineSeries.setData([
+                                    { time: startTime, value: startValue },
+                                    { time: endTime, value: endValue }
+                                ]);
+                                
+                                // 获取后端计算的MACD面积
+                                const macdArea = bi.macd_area || 0;
+                                
+                                // 找出笔区间内所有K线
+                                const barsInStroke = processedData.filter(bar => 
+                                    bar.time >= startTime && bar.time <= endTime);
+                                    
+                                if (barsInStroke.length > 0) {
+                                    // 为区间内的K线添加笔信息，便于tooltip展示
+                                    barsInStroke.forEach(bar => {
+                                        bar.bi = {
+                                            index,
+                                            direction,
+                                            start_dt: bi.fx_a.dt,
+                                            end_dt: bi.fx_b.dt,
+                                            start_val: startValue,
+                                            end_val: endValue,
+                                            macd_area: {
+                                                total: macdArea, // 直接使用后端计算的面积
+                                                positive: direction === 'up' ? macdArea : 0,
+                                                negative: direction === 'down' ? macdArea : 0
+                                            }
+                                        };
+                                    });
+                                }
+                                
+                                // 保存笔信息用于图表展示
+                                biWithMACDArea.push({
+                                    index,
+                                    startTime,
+                                    endTime,
+                                    startValue,
+                                    endValue,
+                                    direction,
+                                    macdArea: {
+                                        total: macdArea
+                                    },
+                                    change: direction === 'up' ? 
+                                        ((endValue - startValue) / startValue * 100).toFixed(2) :
+                                        ((startValue - endValue) / startValue * 100).toFixed(2)
+                                });
+                                
+                                // 添加到marker列表以便后续清理
+                                this.centralZoneMarkers.push(biLineSeries);
+                            } catch (error) {
+                                console.error(`处理笔 #${index} 时出错:`, error);
+                            }
+                        });
+                    }
+                    
+                    // 设置各个图表的数据
+                    this.candlestickSeries.setData(candlestickData);
+                    
+                    // 设置布林带数据
+                    if (this.bollingerUpperSeries && this.bollingerMiddleSeries && this.bollingerLowerSeries) {
+                        this.bollingerUpperSeries.setData(bollingerData.upper);
+                        this.bollingerMiddleSeries.setData(bollingerData.middle);
+                        this.bollingerLowerSeries.setData(bollingerData.lower);
+                    }
+                    
+                    // 设置分型数据
+                    if (this.fxSeries) {
+                        this.fxSeries.setData(fxData);
+                    }
+                    
+                    // 设置成交量数据
+                    if (this.volumeChart && this.volumeSeries) {
+                        this.volumeSeries.setData(volumeData);
+                    } else {
+                        console.warn('成交量图表或数据系列不存在，跳过设置成交量数据');
+                    }
+                    
+                    // 设置MACD数据
+                    if (this.macdChart && this.macdSeries && this.macdSignalSeries && this.macdHistogramSeries) {
+                        try {
+                            // 清除现有的数据
+                            this.macdSeries.setData([]);
+                            this.macdSignalSeries.setData([]);
+                            this.macdHistogramSeries.setData([]);
+                            
+                            // 只有在有有效MACD数据的情况下才设置数据
+                            if (hasMACDData) {
+                                // 设置新的数据
+                                this.macdSeries.setData(macdData.macd);
+                                this.macdSignalSeries.setData(macdData.signal);
+                                this.macdHistogramSeries.setData(macdData.histogram);
+                            } else {
+                                // 如果没有有效的MACD数据，显示一条提示信息
+                                const macdInfoElement = document.getElementById('kline-macd');
+                                if (macdInfoElement) {
+                                    macdInfoElement.textContent = '没有MACD数据';
+                                    macdInfoElement.style.color = '#999';
+                                }
+                                console.warn('MACD数据为空或无效，跳过设置');
+                            }
+                        } catch (macdError) {
+                            console.error('设置MACD数据时出错:', macdError);
+                        }
+                    } else {
+                        console.warn('MACD图表或数据系列不存在，跳过设置MACD数据');
+                    }
+                    
+                    // 存储数据供后续使用
+                    this.chartData = {
+                        bars: candlestickData,
+                        volume: volumeData,
+                        macd: macdData,
+                        bollinger: bollingerData,
+                        fx: fxData,
+                        biWithMACDArea,
+                        rawData: processedData // 保存原始数据，方便访问
+                    };
+                    
+                    // 绘制中枢，如果有的话
+                    if (data.zs_list && data.zs_list.length > 0) {
+                        this.drawCzscZones(data.zs_list);
+                    }
+                    
+                    // 自动缩放到合适的视图
+                    this.fitContent();
+                    
+                    // 初始缩放到最近100根K线
+                    try {
+                        if (this.chartData && this.chartData.bars && this.chartData.bars.length > 0) {
+                            const barCount = processedData.length;
+                            const visibleBars = Math.min(100, barCount);
+                            const logicalRange = {
+                                from: barCount - visibleBars,
+                                to: barCount
+                            };
+                            this.klineChart.timeScale().setVisibleLogicalRange(logicalRange);
+                        }
+                    } catch (error) {
+                        console.error('设置初始缩放范围时出错:', error);
+                    }
+                } catch (error) {
+                    console.error('处理图表数据时出错:', error);
+                }
+            }
+            
+            // 自动缩放到合适的视图
+            fitContent() {
+                try {
+                    if (this.klineChart) {
+                        this.klineChart.timeScale().fitContent();
+                    }
+                    
+                    if (this.volumeChart) {
+                        this.volumeChart.timeScale().fitContent();
+                    }
+                    
+                    if (this.macdChart) {
+                        this.macdChart.timeScale().fitContent();
+                    }
+                } catch (error) {
+                    console.error('自动缩放图表时出错:', error);
+                }
+            }
+
+            // 添加标记到图表的方法
+            addMarkers(markers) {
+                // 清除之前的标记
+                this.clearMarkers();
+                
+                if (!markers || !Array.isArray(markers) || markers.length === 0) {
+                    return;
+                }
+                
+                // 临时数组收集所有标记
+                const allMarkers = [];
+                
+                // 添加新标记
+                markers.forEach(marker => {
+                    try {
+                        const markerTime = new Date(marker.dt).getTime() / 1000;
+                        
+                        // 创建标记对象
+                        const newMarker = {
+                            time: markerTime,
+                            position: marker.position === 'above' ? 'aboveBar' : 'belowBar',
+                            color: marker.color || '#FF0000',
+                            shape: 'arrowDown',
+                            text: marker.text || '',
+                            size: 1
+                        };
+                        
+                        // 添加到临时数组
+                        allMarkers.push(newMarker);
+                    } catch (error) {
+                        console.error('创建标记失败:', error, marker);
+                    }
+                });
+                
+                // 一次性设置所有标记
+                if (this.candlestickSeries && allMarkers.length > 0) {
+                    try {
+                        this.candlestickSeries.setMarkers(allMarkers);
+                        this.markers = allMarkers; // 保存标记引用以便后续清除
+                    } catch (error) {
+                        console.error('设置标记失败:', error);
+                    }
+                }
+            }
+            
+            // 清除所有标记
+            clearMarkers() {
+                this.markers = [];
+                if (this.candlestickSeries) {
+                    try {
+                        this.candlestickSeries.setMarkers([]);
+                    } catch (error) {
+                        console.error('清除标记失败:', error);
+                    }
+                }
+            }
+
+            // 更新图表数据的方法
+            updateCharts(data) {
+                // 检查数据是否有效
+                if (!data || !data.bars || data.bars.length === 0) {
+                    console.error('无效的图表数据');
+                    return;
+                }
+                
+                try {
+                    // 直接调用已有的processChartData方法，该方法包含了完整的处理逻辑
+                    this.processChartData(data);
+                    
+                    // 根据数据添加标记
+                    if (data.bar_markers && data.bar_markers.length > 0) {
+                        this.addMarkers(data.bar_markers);
+                    }
+                } catch (error) {
+                    console.error('更新图表失败:', error);
+                }
+            }
+        }
+        
+        // 初始化图表管理器
+        const chartManager = new ChartManager('kline-chart', 'volume-chart', 'macd-chart');
+        chartManager.initialize();
+        
+        // 加载初始数据
+        const initialStockCode = "{{ stock_code }}"; 
+        const initialKlineType = "{{ kline_type }}";
+        const initialLimit = parseInt("{{ limit }}");
+        chartManager.loadData(initialStockCode, initialKlineType, initialLimit);
+        
+        // 添加查询按钮事件
+        document.getElementById('search-btn').addEventListener('click', () => {
+            const stockCode = document.getElementById('stock-code').value.trim();
+            const klineType = document.getElementById('kline-type').value;
+            const limit = document.getElementById('limit').value;
+            
+            if (!stockCode) {
+                alert('请输入股票代码');
+                return;
+            }
+            
+            // 更新URL（不刷新页面）
+            const newUrl = `/?code=${stockCode}&freq=${klineType}&limit=${limit}`;
+            history.pushState({}, '', newUrl);
+            
+            // 加载数据
+            chartManager.loadData(stockCode, klineType, limit);
+        });
+    </script>
+</body>
+</html> 
